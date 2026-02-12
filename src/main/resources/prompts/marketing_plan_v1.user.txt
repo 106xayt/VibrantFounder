@@ -1,0 +1,20 @@
+Create a marketing decision-support plan based on the following business profile.
+
+Business profile:
+- Industry: {{industry}}
+- Target audience: {{targetAudience}}
+- Primary goal: {{primaryGoal}}
+- Secondary goals: {{secondaryGoals}}
+- Preferred platforms: {{platforms}}
+- Resources per week: {{resourcesPerWeek}} content pieces
+- Tone/brand style: {{tone}}
+- Constraints: {{constraints}}
+
+Instructions:
+1) "Resources per week" represents the maximum number of content pieces that can be produced and published per week.
+2) The total publishing frequency across all platforms must stay within this limit.
+3) Use the preferred platforms. If none are provided, choose the best 2–3 platforms from the allowed Platform enums.
+4) Recommendations must be platform-specific and reflect how each platform actually works.
+5) Provide a clear measurement approach and explicitly state assumptions and uncertainty.
+
+Return ONLY the JSON object described in the system instructions.
