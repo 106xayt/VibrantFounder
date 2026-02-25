@@ -2,17 +2,33 @@ package no.vibrantfounder.bachelor.ai.orchestration;
 
 /**
  * Exception type for AI-related failures, such as:
- * - provider errors/timeouts
- * - invalid output that cannot be repaired
- * - parsing/validation failures
+ * - provider errors
+ * - timeouts
+ * - rate limits
+ * - invalid AI output (parsing/validation failures)
  */
 public class AiException extends RuntimeException {
 
-    public AiException(String message) {
-        super(message);
+    public enum Type {
+        PROVIDER_ERROR,
+        TIMEOUT,
+        RATE_LIMITED,
+        BAD_OUTPUT
     }
 
-    public AiException(String message, Throwable cause) {
+    private final Type type;
+
+    public AiException(Type type, String message) {
+        super(message);
+        this.type = type;
+    }
+
+    public AiException(Type type, String message, Throwable cause) {
         super(message, cause);
+        this.type = type;
+    }
+
+    public Type getType() {
+        return type;
     }
 }

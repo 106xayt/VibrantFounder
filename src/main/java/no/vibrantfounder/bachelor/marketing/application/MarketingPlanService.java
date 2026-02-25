@@ -6,16 +6,20 @@ import no.vibrantfounder.bachelor.ai.orchestration.AiCallOptions;
 import no.vibrantfounder.bachelor.ai.orchestration.AiOrchestrator;
 import no.vibrantfounder.bachelor.ai.orchestration.AiResult;
 import no.vibrantfounder.bachelor.ai.prompting.PromptId;
+import no.vibrantfounder.bachelor.marketing.api.dto.CalendarTaskDto;
 import no.vibrantfounder.bachelor.marketing.api.dto.GeneratePlanRequest;
-import no.vibrantfounder.bachelor.marketing.api.dto.MarketingPlanDbResponse;
+import no.vibrantfounder.bachelor.marketing.api.dto.MarketingPlanReadResponse;
 import no.vibrantfounder.bachelor.marketing.api.dto.MarketingPlanResponse;
 import no.vibrantfounder.bachelor.marketing.api.dto.PlatformPlanDto;
 import no.vibrantfounder.bachelor.marketing.persistence.Assumption;
 import no.vibrantfounder.bachelor.marketing.persistence.MarketingPlan;
 import no.vibrantfounder.bachelor.marketing.persistence.MarketingPlanRepository;
 import no.vibrantfounder.bachelor.marketing.persistence.PlatformPlan;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 
+import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Map;
@@ -71,11 +75,48 @@ public class MarketingPlanService {
         MarketingPlanResponse plan = result.value();
         validateAgainstRequest(plan, request);
 
+        // If AI doesn't provide todayTasks, compute it from calendar
+        plan = ensureTodayTasks(plan);
+
         // ---- PERSIST ----
         MarketingPlan entity = toEntity(request, plan, result.rawText());
         marketingPlanRepository.save(entity);
 
         return plan;
+    }
+
+    private MarketingPlanResponse ensureTodayTasks(MarketingPlanResponse plan) {
+        if (plan == null) return null;
+        if (plan.todayTasks() != null) return plan;
+
+        int computed = 0;
+        List<CalendarTaskDto> cal = plan.calendar();
+        if (cal != null && !cal.isEmpty()) {
+            LocalDate today = LocalDate.now();
+            computed = (int) cal.stream()
+                    .filter(t -> t != null && t.date() != null && today.equals(t.date()))
+                    .count();
+        }
+
+        // records are immutable -> rebuild
+        return new MarketingPlanResponse(
+                plan.summary(),
+                plan.platformPlans(),
+                plan.measurement(),
+                plan.assumptions(),
+                plan.confidence(),
+
+                plan.planPeriodWeeks(),
+                plan.growthPotential(),
+                plan.goalProgressPct(),
+                computed,
+
+                plan.platformMetrics(),
+                plan.contentIdeas(),
+                plan.calendar(),
+
+                plan.generatedAt()
+        );
     }
 
     private MarketingPlan toEntity(GeneratePlanRequest req, MarketingPlanResponse res, String rawJson) {
@@ -94,7 +135,7 @@ public class MarketingPlanService {
                 pp.setPlatform(p.platform() == null ? null : p.platform().name());
                 pp.setFrequencyPerWeek(p.frequencyPerWeek());
                 pp.setRationale(p.rationale());
-                mp.addPlatform(pp); // forutsetter at den setter marketingPlan på child
+                mp.addPlatform(pp);
             }
         }
 
@@ -105,36 +146,61 @@ public class MarketingPlanService {
                 as.setText(a.assumption());
                 as.setRiskLevel(a.riskLevel() == null ? null : a.riskLevel().name());
                 as.setHowToTest(a.howToTest());
-                mp.addAssumption(as); // forutsetter at den setter marketingPlan på child
+                mp.addAssumption(as);
             });
         }
+
+        // NOTE:
+        // We do NOT persist calendar/contentIdeas/metrics yet. They remain available via rawJson
+        // and are returned to frontend via MarketingPlanResponse.
 
         return mp;
     }
 
     // ---------------------------
-    // READ (DB -> API)
+    // READ ONE (DB -> API)  (frontend-safe, no rawJson)
     // ---------------------------
     @Transactional
-    public MarketingPlanDbResponse getPlan(Long id) {
+    public MarketingPlanReadResponse getPlan(Long id) {
         MarketingPlan plan = marketingPlanRepository.findById(id)
                 .orElseThrow(() -> new IllegalArgumentException("MarketingPlan not found: " + id));
-        return toDbResponse(plan);
+        return toReadResponse(plan);
     }
 
+    // ---------------------------
+    // READ ALL (DB -> API)  (paginated + optional filtering)
+    // ---------------------------
     @Transactional
-    public List<MarketingPlanDbResponse> getPlans() {
-        return marketingPlanRepository.findAll()
-                .stream()
-                .map(this::toDbResponse)
-                .toList();
+    public Page<MarketingPlanReadResponse> getPlans(String industry, String primaryGoal, Pageable pageable) {
+        boolean hasIndustry = industry != null && !industry.trim().isBlank();
+        boolean hasGoal = primaryGoal != null && !primaryGoal.trim().isBlank();
+
+        if (hasIndustry && hasGoal) {
+            return marketingPlanRepository
+                    .findByIndustryContainingIgnoreCaseAndPrimaryGoalIgnoreCase(industry.trim(), primaryGoal.trim(), pageable)
+                    .map(this::toReadResponse);
+        }
+
+        if (hasIndustry) {
+            return marketingPlanRepository
+                    .findByIndustryContainingIgnoreCase(industry.trim(), pageable)
+                    .map(this::toReadResponse);
+        }
+
+        if (hasGoal) {
+            return marketingPlanRepository
+                    .findByPrimaryGoalIgnoreCase(primaryGoal.trim(), pageable)
+                    .map(this::toReadResponse);
+        }
+
+        return marketingPlanRepository.findAll(pageable).map(this::toReadResponse);
     }
 
-    private MarketingPlanDbResponse toDbResponse(MarketingPlan plan) {
-        List<MarketingPlanDbResponse.PlatformPlanRow> platforms =
+    private MarketingPlanReadResponse toReadResponse(MarketingPlan plan) {
+        List<MarketingPlanReadResponse.PlatformPlanRow> platforms =
                 plan.getPlatforms() == null ? List.of() :
                         plan.getPlatforms().stream()
-                                .map(p -> new MarketingPlanDbResponse.PlatformPlanRow(
+                                .map(p -> new MarketingPlanReadResponse.PlatformPlanRow(
                                         p.getId(),
                                         p.getPlatform(),
                                         p.getFrequencyPerWeek(),
@@ -142,10 +208,10 @@ public class MarketingPlanService {
                                 ))
                                 .toList();
 
-        List<MarketingPlanDbResponse.AssumptionRow> assumptions =
+        List<MarketingPlanReadResponse.AssumptionRow> assumptions =
                 plan.getAssumptions() == null ? List.of() :
                         plan.getAssumptions().stream()
-                                .map(a -> new MarketingPlanDbResponse.AssumptionRow(
+                                .map(a -> new MarketingPlanReadResponse.AssumptionRow(
                                         a.getId(),
                                         a.getText(),
                                         a.getRiskLevel(),
@@ -153,14 +219,13 @@ public class MarketingPlanService {
                                 ))
                                 .toList();
 
-        return new MarketingPlanDbResponse(
+        return new MarketingPlanReadResponse(
                 plan.getId(),
                 plan.getIndustry(),
                 plan.getTargetAudience(),
                 plan.getPrimaryGoal(),
                 plan.getResourcesPerWeek(),
                 plan.getGeneratedAt(),
-                plan.getRawJson(),
                 platforms,
                 assumptions
         );

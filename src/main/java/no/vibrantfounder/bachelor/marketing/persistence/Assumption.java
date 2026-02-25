@@ -3,23 +3,24 @@ package no.vibrantfounder.bachelor.marketing.persistence;
 import jakarta.persistence.*;
 
 @Entity
+@Table(name = "assumption")
 public class Assumption {
 
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
-    @Column(length = 2000)
+    @Column(name = "text", length = 2000)
     private String text;
 
-    @Column(length = 255)
+    @Column(name = "risk_level", length = 255)
     private String riskLevel;
 
-    @Column(length = 2000)
+    @Column(name = "how_to_test", length = 2000)
     private String howToTest;
 
     @ManyToOne(fetch = FetchType.LAZY)
-    @JoinColumn(name = "marketing_plan_id")
+    @JoinColumn(name = "marketing_plan_id", nullable = false)
     private MarketingPlan marketingPlan;
 
     public Long getId() { return id; }

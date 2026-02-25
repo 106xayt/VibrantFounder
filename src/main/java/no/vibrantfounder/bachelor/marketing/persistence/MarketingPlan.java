@@ -6,23 +6,31 @@ import java.util.ArrayList;
 import java.util.List;
 
 @Entity
+@Table(name = "marketing_plan")
 public class MarketingPlan {
 
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
+    @Column(name = "industry")
     private String industry;
-    private String targetAudience;
-    private String primaryGoal;
-    private int resourcesPerWeek;
 
+    @Column(name = "target_audience")
+    private String targetAudience;
+
+    @Column(name = "primary_goal")
+    private String primaryGoal;
+
+    @Column(name = "resources_per_week", nullable = false)
+    private int resourcesPerWeek;
 
     @Lob
     @Basic(fetch = FetchType.LAZY)
-    @Column(columnDefinition = "CLOB")
+    @Column(name = "raw_json", columnDefinition = "CLOB")
     private String rawJson;
 
+    @Column(name = "generated_at")
     private LocalDateTime generatedAt;
 
     @OneToMany(mappedBy = "marketingPlan", cascade = CascadeType.ALL, orphanRemoval = true)
@@ -31,7 +39,7 @@ public class MarketingPlan {
     @OneToMany(mappedBy = "marketingPlan", cascade = CascadeType.ALL, orphanRemoval = true)
     private List<Assumption> assumptions = new ArrayList<>();
 
-    // ---- helpers (VIKTIG) ----
+    // Helpers
     public void addPlatform(PlatformPlan p) {
         if (p == null) return;
         p.setMarketingPlan(this);
@@ -44,7 +52,7 @@ public class MarketingPlan {
         this.assumptions.add(a);
     }
 
-    // ---- getters/setters ----
+    // Getters & Setters
     public Long getId() { return id; }
     public void setId(Long id) { this.id = id; }
 

@@ -1,13 +1,56 @@
 You are a JSON repair function.
 
-You will be given a text output that is supposed to be JSON but is invalid or contains extra text.
-Your task:
-- Return ONLY valid JSON that conforms exactly to the REQUIRED JSON SHAPE.
-- Do NOT add any new fields.
+You will be given a text output that is supposed to be JSON but is invalid, truncated, or contains extra text.
+
+TASK:
+- Return ONLY valid JSON.
+- It MUST conform EXACTLY to the REQUIRED JSON SHAPE below.
+- Do NOT add fields.
 - Do NOT remove required fields.
 - Do NOT include markdown, comments, or explanations.
+- If the JSON is truncated, COMPLETE missing parts using conservative, minimal, consistent values that match the existing content.
+- Ensure all arrays/objects are properly closed and JSON is valid.
 
-Here is the invalid output to repair:
+REQUIRED JSON SHAPE:
+{
+  "summary": string,
+  "platformPlans": [
+    {
+      "platform": "TIKTOK" | "INSTAGRAM" | "LINKEDIN",
+      "rationale": string,
+      "frequencyPerWeek": integer,
+      "formats": ["SHORT_VIDEO" | "CAROUSEL" | "TEXT_POST" | "STORY" | "LONGFORM"],
+      "contentPillars": [
+        {
+          "name": string,
+          "angle": string,
+          "examples": [string]
+        }
+      ],
+      "hooks": [string],
+      "ctaExamples": [string]
+    }
+  ],
+  "measurement": {
+    "northStarMetric": string,
+    "kpis": [string],
+    "reportingCadence": string
+  },
+  "assumptions": [
+    {
+      "assumption": string,
+      "riskLevel": "LOW" | "MEDIUM" | "HIGH",
+      "howToTest": string
+    }
+  ],
+  "confidence": {
+    "score": number,
+    "reasons": [string]
+  },
+  "generatedAt": string
+}
+
+INVALID OUTPUT TO REPAIR:
 {{raw_output}}
 
 Return ONLY the repaired JSON object.

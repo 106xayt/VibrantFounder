@@ -3,20 +3,24 @@ package no.vibrantfounder.bachelor.marketing.persistence;
 import jakarta.persistence.*;
 
 @Entity
+@Table(name = "platform_plan")
 public class PlatformPlan {
 
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
+    @Column(name = "platform")
     private String platform;
+
+    @Column(name = "frequency_per_week", nullable = false)
     private int frequencyPerWeek;
 
-    @Column(length = 2000)
+    @Column(name = "rationale", length = 2000)
     private String rationale;
 
     @ManyToOne(fetch = FetchType.LAZY)
-    @JoinColumn(name = "marketing_plan_id")
+    @JoinColumn(name = "marketing_plan_id", nullable = false)
     private MarketingPlan marketingPlan;
 
     public Long getId() { return id; }

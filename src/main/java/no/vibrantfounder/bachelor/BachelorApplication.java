@@ -8,7 +8,5 @@ public class BachelorApplication {
 
     public static void main(String[] args) {
         SpringApplication.run(BachelorApplication.class, args);
-        System.out.println("ANTHROPIC_API_KEY present: " + (System.getenv("ANTHROPIC_API_KEY") != null));
-
     }
 }
