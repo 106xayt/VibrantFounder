@@ -1,0 +1,70 @@
+@import "tailwindcss";
+
+/* VibrantFounder-ish theme tokens */
+:root {
+    --bg: 10 10% 4%;
+    --fg: 0 0% 98%;
+
+    --muted: 0 0% 63%;
+    --muted-2: 0 0% 52%;
+
+    --card: 0 0% 7%;
+    --card-2: 0 0% 10%;
+
+    --stroke: 0 0% 16%;
+    --stroke-2: 0 0% 22%;
+
+    --brand: 24 95% 55%;
+}
+
+/* Base */
+html, body, #root {
+    height: 100%;
+}
+
+body {
+    margin: 0;
+    color: hsl(var(--fg));
+    background: radial-gradient(1200px 800px at 20% 20%, rgba(255, 120, 0, 0.18), transparent 60%),
+    radial-gradient(900px 600px at 80% 10%, rgba(255, 255, 255, 0.08), transparent 55%),
+    radial-gradient(900px 700px at 70% 80%, rgba(255, 120, 0, 0.10), transparent 60%),
+    hsl(var(--bg));
+    font-feature-settings: "ss01" on, "ss02" on, "cv11" on;
+}
+
+/* Subtle grid like vibrantfounder */
+.vf-grid {
+    background-image:
+            linear-gradient(to right, rgba(255,255,255,0.04) 1px, transparent 1px),
+            linear-gradient(to bottom, rgba(255,255,255,0.04) 1px, transparent 1px);
+    background-size: 64px 64px;
+    mask-image: radial-gradient(circle at 50% 30%, black 35%, transparent 70%);
+}
+
+/* Helpers */
+.vf-card {
+    background: linear-gradient(180deg, rgba(255,255,255,0.06), rgba(255,255,255,0.03));
+    border: 1px solid rgba(255,255,255,0.10);
+    box-shadow: 0 20px 60px rgba(0,0,0,0.35);
+    border-radius: 24px;
+}
+
+.vf-border {
+    border: 1px solid rgba(255,255,255,0.10);
+}
+
+.vf-muted {
+    color: hsl(var(--muted));
+}
+
+.vf-btn {
+    background: linear-gradient(180deg, rgba(255, 140, 40, 0.95), rgba(255, 110, 0, 0.95));
+    color: #111;
+    border-radius: 14px;
+    box-shadow: 0 12px 30px rgba(255,120,0,0.22);
+}
+
+.vf-btn:disabled {
+    opacity: 0.55;
+    cursor: not-allowed;
+}
