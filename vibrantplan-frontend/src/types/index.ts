@@ -21,28 +21,59 @@ export type GeneratePlanRequest = {
     constraints?: string[];
 };
 
+export type RiskLevel = "HIGH" | "MEDIUM" | "LOW" | string;
+
+export type ContentPillar = {
+    name: string;
+    angle: string;
+    examples: string[];
+};
+
 export type PlatformPlan = {
-    id: number;
     platform: Platform | string;
-    frequencyPerWeek: number;
     rationale: string;
+    frequencyPerWeek: number;
+    formats: string[];
+    contentPillars: ContentPillar[];
+    hooks: string[];
+    ctaExamples: string[];
+};
+
+export type Measurement = {
+    northStarMetric: string;
+    kpis: string[];
+    reportingCadence: string;
 };
 
 export type Assumption = {
-    id: number;
-    text: string;
-    riskLevel: "HIGH" | "MEDIUM" | "LOW" | string;
+    assumption: string;
+    riskLevel: RiskLevel;
     howToTest: string;
 };
 
+export type Confidence = {
+    score: number;
+    reasons: string[];
+};
+
+/**
+ * API response from /api/v1/marketing/plan
+ * NOTE: Some fields are nullable depending on prompt/output.
+ */
 export type MarketingPlanResponse = {
-    id: number;
-    industry: string;
-    targetAudience: string;
-    primaryGoal: Goal | string;
-    resourcesPerWeek: number;
-    generatedAt: string;
-    rawJson: string;
+    summary: string;
     platformPlans: PlatformPlan[];
+    measurement: Measurement;
     assumptions: Assumption[];
+    confidence: Confidence;
+
+    planPeriodWeeks?: number | null;
+    growthPotential?: number | null;
+    goalProgressPct?: number | null;
+    todayTasks?: number | null;
+    platformMetrics?: unknown | null;
+    contentIdeas?: unknown | null;
+    calendar?: unknown | null;
+
+    generatedAt: string;
 };

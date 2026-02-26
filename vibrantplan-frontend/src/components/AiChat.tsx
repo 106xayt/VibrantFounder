@@ -1,7 +1,12 @@
 import { useMemo, useState } from "react";
 import { Sparkles, Send, RotateCcw } from "lucide-react";
 import { generateMarketingPlan } from "../api/marketingApi";
-import type { GeneratePlanRequest, MarketingPlanResponse, Goal, Platform } from "../types";
+import type {
+    GeneratePlanRequest,
+    MarketingPlanResponse,
+    Goal,
+    Platform,
+} from "../types";
 
 interface Props {
     onPlanGenerated: (plan: MarketingPlanResponse) => void;
@@ -27,10 +32,22 @@ type Draft = {
 };
 
 const GOAL_KEYWORDS: Array<{ goal: Goal; keywords: string[] }> = [
-    { goal: "LEADS" as Goal, keywords: ["lead", "leads", "book calls", "bookings", "appointments", "pipeline"] },
-    { goal: "AWARENESS" as Goal, keywords: ["awareness", "brand", "reach", "top of funnel", "visibility"] },
-    { goal: "SALES" as Goal, keywords: ["sales", "revenue", "close", "conversions", "purchase", "buy"] },
-    { goal: "COMMUNITY" as Goal, keywords: ["community", "followers", "engagement", "loyalty", "retention"] },
+    {
+        goal: "LEADS" as Goal,
+        keywords: ["lead", "leads", "book calls", "bookings", "appointments", "pipeline"],
+    },
+    {
+        goal: "AWARENESS" as Goal,
+        keywords: ["awareness", "brand", "reach", "top of funnel", "visibility"],
+    },
+    {
+        goal: "SALES" as Goal,
+        keywords: ["sales", "revenue", "close", "conversions", "purchase", "buy"],
+    },
+    {
+        goal: "COMMUNITY" as Goal,
+        keywords: ["community", "followers", "engagement", "loyalty", "retention"],
+    },
 ];
 
 const TONE_KEYWORDS: Array<{ tone: string; keywords: string[] }> = [
@@ -53,107 +70,189 @@ function clampInt(n: number, min: number, max: number) {
     return Math.max(min, Math.min(max, n));
 }
 
+/**
+ * Tokenize to avoid substring traps (e.g. "clients" contains "li").
+ */
 function tokenizeWords(text: string): string[] {
-    return text
+    // split on anything not a letter/number
+    const parts = text
         .toLowerCase()
         .split(/[^a-z0-9]+/g)
         .map((x) => x.trim())
         .filter(Boolean);
+
+    return parts;
 }
 
+/**
+ * Platform parsing with safe word-boundary rules.
+ * - LinkedIn: only "linkedin" or phrase "linked in"
+ * - Instagram: "instagram" or token "ig"
+ * - TikTok: "tiktok" or token "tt"
+ */
 function parsePlatforms(raw: string): Platform[] {
     const tokens = tokenizeWords(raw);
+
     const platforms: Platform[] = [];
 
-    if (/\blinked\s+in\b/i.test(raw) || tokens.includes("linkedin")) platforms.push("LINKEDIN" as Platform);
-    if (tokens.includes("instagram") || tokens.includes("ig")) platforms.push("INSTAGRAM" as Platform);
-    if (tokens.includes("tiktok") || tokens.includes("tt")) platforms.push("TIKTOK" as Platform);
+    // linked in phrase
+    if (/\blinked\s+in\b/i.test(raw) || tokens.includes("linkedin")) {
+        platforms.push("LINKEDIN" as Platform);
+    }
+    if (tokens.includes("instagram") || tokens.includes("ig")) {
+        platforms.push("INSTAGRAM" as Platform);
+    }
+    if (tokens.includes("tiktok") || tokens.includes("tt")) {
+        platforms.push("TIKTOK" as Platform);
+    }
 
+    // explicit: platforms: ...
     const platformsExplicit = raw.match(/\bplatforms?\s*[:=]\s*(.+)$/i)?.[1];
     if (platformsExplicit) {
         const expTokens = tokenizeWords(platformsExplicit);
-        if (/\blinked\s+in\b/i.test(platformsExplicit) || expTokens.includes("linkedin")) platforms.push("LINKEDIN" as Platform);
-        if (expTokens.includes("instagram") || expTokens.includes("ig")) platforms.push("INSTAGRAM" as Platform);
-        if (expTokens.includes("tiktok") || expTokens.includes("tt")) platforms.push("TIKTOK" as Platform);
+        if (/\blinked\s+in\b/i.test(platformsExplicit) || expTokens.includes("linkedin")) {
+            platforms.push("LINKEDIN" as Platform);
+        }
+        if (expTokens.includes("instagram") || expTokens.includes("ig")) {
+            platforms.push("INSTAGRAM" as Platform);
+        }
+        if (expTokens.includes("tiktok") || expTokens.includes("tt")) {
+            platforms.push("TIKTOK" as Platform);
+        }
     }
 
     return uniq(platforms);
 }
 
-function parseMessage(text: string): { patch: Draft; leftovers: string } {
-    const patch: Draft = {};
-    let leftovers = text;
+/**
+ * Tries to extract structured fields from a natural language message.
+ * Returns { patch, leftovers } where leftovers can be used for industry/audience if missing.
+ */
+function parseMessage(text: string): { patch: Partial<Draft>; leftovers: string } {
+    const raw = text;
+    const t = normalize(text);
 
-    // ---- 1) Explicit fields (same as before) ----
-    const industryMatch = text.match(/\bindustry\s*[:=]\s*([^\n,]+)/i);
-    if (industryMatch?.[1]) {
-        patch.industry = industryMatch[1].trim();
-        leftovers = leftovers.replace(industryMatch[0], "");
+    const patch: Partial<Draft> = {};
+    let leftovers = raw;
+
+    // --- Skip tone shortcut ---
+    if (t === "skip" || t === "skip tone" || t === "no tone") {
+        patch.tone = "Default";
+        return { patch, leftovers: "" };
     }
 
-    const audienceMatch = text.match(/\b(audience|target audience|target)\s*[:=]\s*([^\n,]+)/i);
-    if (audienceMatch?.[2]) {
-        patch.targetAudience = audienceMatch[2].trim();
-        leftovers = leftovers.replace(audienceMatch[0], "");
-    }
+    // --- Primary goal (and secondary goals) ---
+    const goalExplicit =
+        t.match(/\b(primary\s*goal|goal)\s*[:=]\s*([a-z\s]+)/i)?.[2]?.trim() ?? null;
 
-    const resourcesMatch = text.match(/\b(resources|resources\/week|per week|\/week)\s*[:=]?\s*(\d+)\b/i);
-    if (resourcesMatch?.[2]) {
-        patch.resourcesPerWeek = clampInt(parseInt(resourcesMatch[2], 10), 1, 50);
-        leftovers = leftovers.replace(resourcesMatch[0], "");
-    } else {
-        const weeklyMatch = text.match(/\b(\d{1,2})\s*(\/|per)\s*week\b/i);
-        if (weeklyMatch?.[1]) {
-            patch.resourcesPerWeek = clampInt(parseInt(weeklyMatch[1], 10), 1, 50);
-            leftovers = leftovers.replace(weeklyMatch[0], "");
+    const foundGoals: Goal[] = [];
+
+    const scanGoal = (s: string) => {
+        for (const g of GOAL_KEYWORDS) {
+            if (g.keywords.some((k) => s.includes(k))) foundGoals.push(g.goal);
         }
+    };
+
+    if (goalExplicit) scanGoal(goalExplicit);
+    scanGoal(t);
+
+    if (foundGoals.length > 0) {
+        const distinct = uniq(foundGoals);
+        patch.primaryGoal = distinct[0];
+        if (distinct.length > 1) patch.secondaryGoals = distinct.slice(1, 6);
     }
 
-    const platforms = parsePlatforms(text);
-    if (platforms.length) patch.platforms = platforms;
+    // --- Platforms (safe parsing) ---
+    const platforms = parsePlatforms(raw);
+    if (platforms.length > 0) patch.platforms = platforms;
 
-    const lower = normalize(text);
+    // --- Resources per week (posts/content pieces per week) ---
+    // Accept patterns like:
+    // "5 per week", "5/week", "5x/week", "5 posts/week", "resources/week 5"
+    const res1 = t.match(/\b(\d{1,3})\s*(x|times)?\s*(per\s*week|\/week|weekly)\b/);
+    const res2 = t.match(/\b(resources?|posts?|pieces?|content)\s*(per\s*week|\/week)\s*[:=]?\s*(\d{1,3})\b/);
+    const res3 = t.match(/\b(\d{1,3})\s*(posts?|pieces?|content)\s*(a\s*week|per\s*week|\/week)\b/);
 
-    for (const rule of GOAL_KEYWORDS) {
-        if (rule.keywords.some((k) => lower.includes(k))) {
-            patch.primaryGoal = rule.goal;
-            break;
-        }
+    const rawNum =
+        (res2?.[3] ? Number(res2[3]) : null) ??
+        (res3?.[1] ? Number(res3[1]) : null) ??
+        (res1?.[1] ? Number(res1[1]) : null);
+
+    if (rawNum != null && Number.isFinite(rawNum)) {
+        patch.resourcesPerWeek = clampInt(rawNum, 1, 100);
     }
 
-    for (const rule of TONE_KEYWORDS) {
-        if (rule.keywords.some((k) => lower.includes(k))) {
-            patch.tone = rule.tone;
-            break;
-        }
+    // --- Tone ---
+    const toneExplicit = t.match(/\btone\s*[:=]\s*([a-z\s-]+)/i)?.[1]?.trim() ?? null;
+    const toneHits: string[] = [];
+    if (toneExplicit) toneHits.push(toneExplicit);
+
+    for (const tt of TONE_KEYWORDS) {
+        if (tt.keywords.some((k) => t.includes(k))) toneHits.push(tt.tone);
+    }
+    if (toneHits.length > 0) patch.tone = toneHits[0];
+
+    // --- Audience / Industry explicit fields ---
+    const industryExplicit = raw.match(/\bindustry\s*[:=]\s*(.+)$/i)?.[1]?.trim();
+    const audienceExplicit = raw.match(/\b(audience|target\s*audience)\s*[:=]\s*(.+)$/i)?.[2]?.trim();
+
+    if (industryExplicit) patch.industry = industryExplicit;
+    if (audienceExplicit) patch.targetAudience = audienceExplicit;
+
+    // --- Constraints ---
+    const constraintsExplicit = raw.match(/\bconstraints?\s*[:=]\s*(.+)$/i)?.[1]?.trim();
+    const constraints: string[] = [];
+
+    if (constraintsExplicit) {
+        constraintsExplicit
+            .split(",")
+            .map((x) => x.trim())
+            .filter(Boolean)
+            .forEach((x) => constraints.push(x));
     }
 
-    // ---- 2) NEW: Infer industry from first clause if missing ----
-    if (!patch.industry) {
-        // Take everything before "Audience:" or "Goal:" or "Platforms:" or first period
-        const candidate = text
-            .split(/(?:\bAudience\b\s*:|\bTarget audience\b\s*:|\bGoal\b\s*:|\bPlatforms?\b\s*:|\.)/i)[0]
-            ?.trim();
-
-        // If it looks meaningful, use it as industry
-        if (candidate && candidate.length >= 6) {
-            patch.industry = candidate.replace(/^["'“”]+|["'“”]+$/g, "").trim();
-        }
+    const constraintSignals = ["avoid", "no ", "can't", "cannot", "do not", "dont", "don't", "must not", "without"];
+    if (constraintSignals.some((s) => t.includes(s))) {
+        if (!constraintsExplicit) constraints.push(raw.trim());
     }
 
-    leftovers = leftovers.replace(/\s+/g, " ").trim();
+    if (constraints.length > 0) patch.constraints = uniq(constraints).slice(0, 20);
+
+    // leftovers only used if no explicit industry/audience fields
+    if (industryExplicit || audienceExplicit) leftovers = "";
+
     return { patch, leftovers };
 }
 
-function buildSummary(draft: Draft) {
-    const lines: string[] = [];
-    if (draft.industry) lines.push(`Industry: ${draft.industry}`);
-    if (draft.targetAudience) lines.push(`Target audience: ${draft.targetAudience}`);
-    if (draft.primaryGoal) lines.push(`Primary goal: ${draft.primaryGoal}`);
-    if (draft.platforms?.length) lines.push(`Platforms: ${draft.platforms.join(", ")}`);
-    if (draft.resourcesPerWeek) lines.push(`Resources/week: ${draft.resourcesPerWeek}`);
-    if (draft.tone) lines.push(`Tone: ${draft.tone}`);
-    return lines.join("\n");
+function nextQuestion(d: Draft): string | null {
+    if (!d.industry) return "What industry are you in? (e.g. “B2B SaaS for dentists”)";
+    if (!d.targetAudience) return "Who is your target audience? (be specific)";
+    if (!d.primaryGoal)
+        return "What’s the primary goal? (LEADS / AWARENESS / SALES / COMMUNITY) — you can also say it in plain English.";
+    if (!d.platforms || d.platforms.length === 0)
+        return "Which platforms do you want to focus on? (LinkedIn, Instagram, TikTok)";
+    if (!d.resourcesPerWeek)
+        return "How many content pieces can you ship per week? (e.g. “5/week”)";
+    if (!d.tone) return "Optional: What tone should we use? (professional, friendly, bold, playful, educational) — or say “skip”.";
+    return null;
+}
+
+function buildSummary(d: Draft) {
+    const platforms = (d.platforms ?? []).join(", ");
+    const secondary = (d.secondaryGoals ?? []).join(", ");
+    const constraints = (d.constraints ?? []).slice(0, 5).join(" • ");
+    return [
+        `Industry: ${d.industry ?? "-"}`,
+        `Target audience: ${d.targetAudience ?? "-"}`,
+        `Primary goal: ${d.primaryGoal ?? "-"}`,
+        secondary ? `Secondary goals: ${secondary}` : null,
+        `Platforms: ${platforms || "-"}`,
+        `Resources/week: ${d.resourcesPerWeek ?? "-"}`,
+        d.tone ? `Tone: ${d.tone}` : null,
+        constraints ? `Constraints: ${constraints}` : null,
+    ]
+        .filter(Boolean)
+        .join("\n");
 }
 
 export function AiChat({ onPlanGenerated }: Props) {
@@ -162,8 +261,9 @@ export function AiChat({ onPlanGenerated }: Props) {
             id: 1,
             role: "ai",
             text:
-                "Tell me about your business and goals.\nExample: “B2B SaaS for dentists. Audience: clinic owners. Goal: leads. Platforms: LinkedIn + IG. 5/week.”",
+                "Hey 👋 Describe your business in one message (industry, audience, goal, platforms, posts/week). I’ll pick it up — and ask only what’s missing.",
         },
+        { id: 2, role: "ai", text: "Let’s start: what industry are you in?" },
     ]);
 
     const [draft, setDraft] = useState<Draft>({});
@@ -172,101 +272,165 @@ export function AiChat({ onPlanGenerated }: Props) {
     const [error, setError] = useState<string | null>(null);
 
     const readyToGenerate = useMemo(() => {
-        return !!(
+        return Boolean(
             draft.industry &&
             draft.targetAudience &&
             draft.primaryGoal &&
-            draft.platforms?.length &&
+            draft.platforms &&
+            draft.platforms.length > 0 &&
             draft.resourcesPerWeek
         );
     }, [draft]);
 
-    function reset() {
+    function push(role: Role, text: string) {
+        setMessages((prev) => [...prev, { id: Date.now() + Math.random(), role, text }]);
+    }
+
+    function resetChat() {
+        setDraft({});
+        setInput("");
+        setError(null);
+        setLoading(false);
         setMessages([
             {
                 id: 1,
                 role: "ai",
                 text:
-                    "Tell me about your business and goals.\nExample: “B2B SaaS for dentists. Audience: clinic owners. Goal: leads. Platforms: LinkedIn + IG. 5/week.”",
+                    "Hey 👋 Describe your business in one message (industry, audience, goal, platforms, posts/week). I’ll pick it up — and ask only what’s missing.",
             },
+            { id: 2, role: "ai", text: "Let’s start: what industry are you in?" },
         ]);
-        setDraft({});
-        setInput("");
-        setError(null);
-        setLoading(false);
     }
 
-    async function generate() {
-        const request: GeneratePlanRequest = {
-            industry: draft.industry!,
-            targetAudience: draft.targetAudience!,
-            primaryGoal: draft.primaryGoal!,
-            secondaryGoals: draft.secondaryGoals ?? [],
-            platforms: draft.platforms!,
-            resourcesPerWeek: draft.resourcesPerWeek!,
-            tone: draft.tone ?? "Professional",
-            constraints: draft.constraints ?? [],
-        };
+    async function maybeGenerate(updatedDraft: Draft) {
+        const ok =
+            updatedDraft.industry &&
+            updatedDraft.targetAudience &&
+            updatedDraft.primaryGoal &&
+            updatedDraft.platforms &&
+            updatedDraft.platforms.length > 0 &&
+            updatedDraft.resourcesPerWeek;
+
+        if (!ok) return;
+
+        const payload: GeneratePlanRequest = {
+            industry: updatedDraft.industry!,
+            targetAudience: updatedDraft.targetAudience!,
+            primaryGoal: updatedDraft.primaryGoal!,
+            secondaryGoals: updatedDraft.secondaryGoals ?? [],
+            platforms: updatedDraft.platforms!,
+            resourcesPerWeek: updatedDraft.resourcesPerWeek!,
+            tone: (updatedDraft.tone && updatedDraft.tone !== "Default") ? updatedDraft.tone : null,
+            constraints: updatedDraft.constraints ?? [],
+        } as unknown as GeneratePlanRequest;
+
+        push("ai", "Perfect. Here’s what I understood:\n\n" + buildSummary(updatedDraft));
+        push("ai", "Generating your plan now… 🚀");
 
         setLoading(true);
         setError(null);
 
         try {
-            // ✅ Fix: ensure we pass the type from ../types, not the one declared in api file
-            const plan = (await generateMarketingPlan(request)) as unknown as MarketingPlanResponse;
-
+            const plan = await generateMarketingPlan(payload);
             onPlanGenerated(plan);
-
-            setMessages((prev) => [
-                ...prev,
-                { id: Date.now(), role: "ai", text: "Done ✅ Your plan is ready on the right." },
-            ]);
+            push("ai", "Done ✅ Your plan is ready in “Your Plan”.");
         } catch (e: any) {
-            setError(e?.message ?? "Something went wrong");
+            let msg = "Something went wrong while generating the plan.";
+            const m = String(e?.message ?? "");
+
+            if (m.includes("401")) msg = "HTTP 401: Unauthorized. Check Basic Auth / credentials.";
+            else if (m.includes("403")) msg = "HTTP 403: Forbidden. Check security config.";
+            else if (m.includes("422")) msg = "HTTP 422: Validation error. Payload didn’t match backend DTO.";
+            else if (m.includes("500")) msg = "HTTP 500: Server error. Check backend logs for the correlationId.";
+            else if (m.toLowerCase().includes("timeout")) msg = "Request timed out. Increase backend timeout or reduce output size.";
+
+            setError(msg);
+            push("ai", `⚠️ ${msg}`);
         } finally {
             setLoading(false);
         }
     }
 
-    // ✅ Fix: not async (no ignored promise warning)
-    function handleSend() {
+    async function handleSend() {
         const text = input.trim();
-        if (!text) return;
+        if (!text || loading) return;
 
-        setMessages((prev) => [...prev, { id: Date.now(), role: "user", text }]);
         setInput("");
+        setError(null);
+        push("user", text);
 
-        const { patch } = parseMessage(text);
-        setDraft((prev) => ({ ...prev, ...patch }));
+        // Special case: user only typed a number and we're missing resources/week
+        const justNumber = text.match(/^\s*(\d{1,3})\s*$/);
+        const numericOnly = justNumber ? Number(justNumber[1]) : null;
 
-        setMessages((prev) => [
-            ...prev,
-            {
-                id: Date.now() + 1,
-                role: "ai",
-                text:
-                    "Got it. I’ll capture what I can from that.\nWhen the draft is complete, hit Generate.",
-            },
-        ]);
+        const { patch, leftovers } = parseMessage(text);
+
+        setDraft((prev) => {
+            const merged: Draft = { ...prev, ...patch };
+
+            // If user typed only a number and resourcesPerWeek is the missing required field,
+            // interpret it as resources/week.
+            if (!merged.resourcesPerWeek && numericOnly != null && Number.isFinite(numericOnly)) {
+                const needResources = Boolean(
+                    merged.industry &&
+                    merged.targetAudience &&
+                    merged.primaryGoal &&
+                    merged.platforms &&
+                    merged.platforms.length > 0
+                );
+                if (needResources) merged.resourcesPerWeek = clampInt(numericOnly, 1, 100);
+            }
+
+            // If user gave free text and we still miss industry/audience, use leftovers carefully:
+            const leftoversClean = leftovers.trim();
+            if (leftoversClean) {
+                if (!merged.industry) merged.industry = leftoversClean;
+                else if (!merged.targetAudience) merged.targetAudience = leftoversClean;
+            }
+
+            // Normalize / dedupe
+            if (merged.platforms) merged.platforms = uniq(merged.platforms);
+            if (merged.secondaryGoals) merged.secondaryGoals = uniq(merged.secondaryGoals).slice(0, 5);
+            if (merged.constraints) merged.constraints = uniq(merged.constraints).slice(0, 20);
+
+            const requiredOk =
+                merged.industry &&
+                merged.targetAudience &&
+                merged.primaryGoal &&
+                merged.platforms &&
+                merged.platforms.length > 0 &&
+                merged.resourcesPerWeek;
+
+            if (!requiredOk) {
+                push("ai", nextQuestion(merged) ?? "Tell me a bit more.");
+            } else {
+                // If tone missing, ask once but don't block generation
+                if (!merged.tone) {
+                    push("ai", "Optional: What tone should we use? (professional, friendly, bold, playful, educational) — or say “skip”.");
+                    // Generate immediately anyway (tone optional)
+                    void maybeGenerate(merged);
+                } else {
+                    void maybeGenerate(merged);
+                }
+            }
+
+            return merged;
+        });
     }
 
     return (
-        <div className="vf-card p-6 h-[600px] flex flex-col">
-            {/* Header */}
-            <div className="flex items-center justify-between mb-4">
-                <div className="flex items-center gap-3">
-                    <div className="size-9 rounded-xl bg-gradient-to-br from-orange-500 via-pink-500 to-purple-600 flex items-center justify-center shadow-lg">
-                        <Sparkles className="size-5 text-white" />
-                    </div>
-                    <div>
-                        <h2 className="font-bold text-lg leading-none">AI Chat</h2>
-                        <p className="text-[11px] text-slate-400 -mt-0.5">Your co-founder session</p>
-                    </div>
+        <div className="vf-card p-6 flex flex-col h-[650px]">
+            <div className="flex items-center justify-between gap-3 mb-4">
+                <div className="flex items-center gap-2">
+                    <Sparkles className="size-4 text-[var(--vf-orange)]" />
+                    <h2 className="font-semibold tracking-tight">AI Chat</h2>
                 </div>
 
                 <button
-                    onClick={reset}
-                    className="inline-flex items-center gap-2 text-sm text-slate-500 hover:text-slate-700"
+                    type="button"
+                    onClick={resetChat}
+                    className="inline-flex items-center gap-2 text-sm px-3 py-2 rounded-xl border border-white/10 hover:bg-white/5 transition text-white/80"
+                    disabled={loading}
                     title="Reset"
                 >
                     <RotateCcw className="size-4" />
@@ -275,28 +439,26 @@ export function AiChat({ onPlanGenerated }: Props) {
             </div>
 
             {/* Messages */}
-            <div className="flex-1 overflow-y-auto pr-2">
-                <div className="space-y-3">
-                    {messages.map((m) => (
-                        <div
-                            key={m.id}
-                            className={`p-3 rounded-2xl text-sm whitespace-pre-wrap max-w-[88%] ${
-                                m.role === "ai"
-                                    ? "bg-slate-100 text-slate-700"
-                                    : "bg-gradient-to-r from-orange-500 via-pink-500 to-purple-600 text-white ml-auto"
-                            }`}
-                        >
-                            {m.text}
-                        </div>
-                    ))}
-                </div>
+            <div className="flex-1 overflow-y-auto space-y-4 mb-4 pr-1">
+                {messages.map((m) => (
+                    <div
+                        key={m.id}
+                        className={`p-3 rounded-2xl text-sm whitespace-pre-wrap max-w-[88%] border ${
+                            m.role === "ai"
+                                ? "bg-white/5 border-white/10 text-white/85"
+                                : "bg-gradient-to-r from-[var(--vf-orange)] to-[var(--vf-blue)] border-white/10 text-white ml-auto"
+                        }`}
+                    >
+                        {m.text}
+                    </div>
+                ))}
             </div>
 
             {/* Draft helper */}
-            <div className="mt-4 mb-3 rounded-2xl border border-black/10 bg-white/70 p-3 text-xs text-slate-600 whitespace-pre-wrap">
+            <div className="mb-3 rounded-2xl border border-white/10 bg-white/5 p-3 text-xs text-white/70 whitespace-pre-wrap">
                 <div className="flex items-center justify-between gap-2 mb-1">
-                    <span className="font-semibold text-slate-700">Captured so far</span>
-                    <span className={`font-semibold ${readyToGenerate ? "text-emerald-600" : "text-amber-600"}`}>
+                    <span className="font-semibold text-white/85">Captured so far</span>
+                    <span className={`font-semibold ${readyToGenerate ? "text-emerald-400" : "text-amber-400"}`}>
             {readyToGenerate ? "Ready" : "Incomplete"}
           </span>
                 </div>
@@ -304,20 +466,7 @@ export function AiChat({ onPlanGenerated }: Props) {
             </div>
 
             {/* Error */}
-            {error && <div className="text-sm text-red-500 mb-3">{error}</div>}
-
-            {/* Actions */}
-            <div className="flex gap-2 mb-3">
-                <button
-                    onClick={generate}
-                    disabled={!readyToGenerate || loading}
-                    className={`vf-gradient-btn flex-1 inline-flex items-center justify-center gap-2 ${
-                        !readyToGenerate || loading ? "opacity-60 cursor-not-allowed" : ""
-                    }`}
-                >
-                    {loading ? "Generating…" : "Generate plan"}
-                </button>
-            </div>
+            {error && <div className="text-sm text-red-400 mb-3">{error}</div>}
 
             {/* Input */}
             <div className="flex gap-2">
@@ -343,7 +492,7 @@ export function AiChat({ onPlanGenerated }: Props) {
             </div>
 
             {!loading && (
-                <div className="mt-3 text-[11px] text-slate-500">
+                <div className="mt-3 text-[11px] text-white/55">
                     Tip: You can write:{" "}
                     <span className="font-semibold">
             “B2B SaaS for dentists. Audience: clinic owners. Goal: leads. Platforms: LinkedIn + IG. 5/week.”

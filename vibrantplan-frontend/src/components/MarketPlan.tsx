@@ -1,264 +1,242 @@
 import { useMemo, useState } from "react";
-import type { MarketingPlanResponse } from "../types";
-import { adaptPlanToVM } from "../utils/planAdapter";
+import { BarChart3, CheckCircle2, Flame, LayoutGrid, LineChart, Target } from "lucide-react";
+import type { MarketingPlanResponse, PlatformPlan } from "../types";
 
-type Tab = "overview" | "content";
-
-interface Props {
+type Props = {
     plan: MarketingPlanResponse | null;
-}
+};
 
-function StatCard(props: { title: string; value: string; subtitle: string }) {
+type Tab = "platforms" | "measurement" | "assumptions" | "confidence";
+
+function TabButton({
+                       active,
+                       onClick,
+                       icon,
+                       label,
+                   }: {
+    active: boolean;
+    onClick: () => void;
+    icon: React.ReactNode;
+    label: string;
+}) {
     return (
-        <div className="vf-card p-5">
-            <div className="text-sm font-semibold text-slate-700">{props.title}</div>
-            <div className="mt-6 text-4xl font-extrabold">{props.value}</div>
-            <div className="text-xs text-slate-500 mt-1">{props.subtitle}</div>
-        </div>
+        <button
+            onClick={onClick}
+            className={`inline-flex items-center gap-2 px-3 py-2 rounded-xl border text-sm transition ${
+                active
+                    ? "bg-white/10 border-white/20 text-white"
+                    : "bg-white/5 border-white/10 text-white/75 hover:bg-white/10"
+            }`}
+        >
+            <span className="opacity-90">{icon}</span>
+            {label}
+        </button>
     );
 }
 
-function SegmentedTabs({ tab, setTab }: { tab: Tab; setTab: (t: Tab) => void }) {
+function PlatformCard({ p }: { p: PlatformPlan }) {
     return (
-        <div className="vf-card p-2 relative overflow-hidden">
-            {/* slider */}
-            <div
-                className={`absolute top-2 bottom-2 w-[calc(50%-8px)] rounded-xl vf-gradient transition-transform duration-300 ${
-                    tab === "overview" ? "translate-x-0 left-2" : "translate-x-full left-0"
-                }`}
-                style={{
-                    transform: tab === "overview" ? "translateX(0)" : "translateX(calc(100% + 8px))",
-                }}
-            />
-            <div className="relative grid grid-cols-2 gap-2">
-                <button
-                    className={`rounded-xl py-3 font-semibold transition-colors ${
-                        tab === "overview" ? "text-white" : "text-slate-700"
-                    }`}
-                    onClick={() => setTab("overview")}
-                >
-                    Overview
-                </button>
-                <button
-                    className={`rounded-xl py-3 font-semibold transition-colors ${
-                        tab === "content" ? "text-white" : "text-slate-700"
-                    }`}
-                    onClick={() => setTab("content")}
-                >
-                    Content Activity
-                </button>
+        <div className="vf-card p-5">
+            <div className="flex items-start justify-between gap-4">
+                <div>
+                    <div className="text-xs text-white/55">Platform</div>
+                    <div className="text-xl font-semibold tracking-tight">{p.platform}</div>
+                </div>
+                <div className="vf-pill">
+                    <Target className="size-4" />
+                    {p.frequencyPerWeek}/week
+                </div>
+            </div>
+
+            <div className="mt-3 text-sm text-white/75 leading-relaxed">
+                <span className="text-white/55">Rationale:</span> {p.rationale}
+            </div>
+
+            <div className="mt-4 flex flex-wrap gap-2">
+                {p.formats?.map((f) => (
+                    <span key={f} className="vf-pill">
+                        <LayoutGrid className="size-4" />
+                        {f}
+                    </span>
+                ))}
+            </div>
+
+            <div className="mt-5">
+                <div className="text-sm font-semibold">Content pillars</div>
+                <div className="mt-2 grid md:grid-cols-2 gap-3">
+                    {p.contentPillars?.map((c) => (
+                        <div key={c.name} className="rounded-2xl border border-white/10 bg-white/5 p-4">
+                            <div className="font-semibold">{c.name}</div>
+                            <div className="mt-1 text-sm text-white/70">{c.angle}</div>
+                            <div className="mt-3 space-y-1">
+                                {c.examples?.slice(0, 3).map((ex) => (
+                                    <div key={ex} className="text-xs text-white/70 flex gap-2">
+                                        <span className="text-white/45">•</span>
+                                        <span>{ex}</span>
+                                    </div>
+                                ))}
+                            </div>
+                        </div>
+                    ))}
+                </div>
+            </div>
+
+            <div className="mt-5 grid md:grid-cols-2 gap-3">
+                <div className="rounded-2xl border border-white/10 bg-white/5 p-4">
+                    <div className="flex items-center gap-2 font-semibold">
+                        <Flame className="size-4 text-[var(--vf-orange)]" />
+                        Hooks
+                    </div>
+                    <div className="mt-2 space-y-1">
+                        {p.hooks?.slice(0, 6).map((h) => (
+                            <div key={h} className="text-xs text-white/70 flex gap-2">
+                                <span className="text-white/45">•</span>
+                                <span>{h}</span>
+                            </div>
+                        ))}
+                    </div>
+                </div>
+
+                <div className="rounded-2xl border border-white/10 bg-white/5 p-4">
+                    <div className="flex items-center gap-2 font-semibold">
+                        <CheckCircle2 className="size-4 text-emerald-400" />
+                        CTAs
+                    </div>
+                    <div className="mt-2 space-y-1">
+                        {p.ctaExamples?.slice(0, 6).map((cta) => (
+                            <div key={cta} className="text-xs text-white/70 flex gap-2">
+                                <span className="text-white/45">•</span>
+                                <span>{cta}</span>
+                            </div>
+                        ))}
+                    </div>
+                </div>
             </div>
         </div>
     );
 }
 
 export function MarketPlan({ plan }: Props) {
-    const [tab, setTab] = useState<Tab>("overview");
-    const vm = useMemo(() => (plan ? adaptPlanToVM(plan) : null), [plan]);
+    const [tab, setTab] = useState<Tab>("platforms");
 
-    if (!plan || !vm) return null;
+    const sortedPlatforms = useMemo(() => {
+        const items = plan?.platformPlans ?? [];
+        return [...items].sort((a, b) => (b.frequencyPerWeek ?? 0) - (a.frequencyPerWeek ?? 0));
+    }, [plan]);
 
-    const todayTasksValue =
-        vm.stats.todayTasks == null ? "—" : String(vm.stats.todayTasks);
-
-    const growthValue =
-        vm.stats.growthPotential == null ? "—" : vm.stats.growthPotential;
-
-    const planPeriodValue =
-        vm.stats.planPeriodWeeks == null ? "—" : String(vm.stats.planPeriodWeeks);
-
-    const progressValue =
-        vm.stats.goalProgressPct == null ? "—" : `${vm.stats.goalProgressPct}%`;
+    if (!plan) {
+        return (
+            <div className="vf-card p-6">
+                <div className="text-sm text-white/70">Your plan will appear here.</div>
+                <div className="mt-2 text-xs text-white/55">
+                    Generate a plan from the chat panel. We’ll render platform strategy, pillars, hooks, CTAs, and metrics.
+                </div>
+            </div>
+        );
+    }
 
     return (
-        <div className="space-y-6">
-            {/* Title */}
-            <div className="text-center">
-                <div className="inline-flex items-center gap-2 vf-badge">
-                    ✨ Step 2: Review Your Plan
+        <div className="vf-card p-6 flex flex-col gap-5">
+            <div>
+                <div className="text-xs text-white/55">Summary</div>
+                <div className="mt-1 text-base sm:text-lg text-white/85 leading-relaxed">{plan.summary}</div>
+                <div className="mt-2 text-xs text-white/45">Generated at: {plan.generatedAt}</div>
+            </div>
+
+            <div className="flex flex-wrap gap-2">
+                <TabButton
+                    active={tab === "platforms"}
+                    onClick={() => setTab("platforms")}
+                    icon={<LayoutGrid className="size-4" />}
+                    label="Platforms"
+                />
+                <TabButton
+                    active={tab === "measurement"}
+                    onClick={() => setTab("measurement")}
+                    icon={<BarChart3 className="size-4" />}
+                    label="Measurement"
+                />
+                <TabButton
+                    active={tab === "assumptions"}
+                    onClick={() => setTab("assumptions")}
+                    icon={<Target className="size-4" />}
+                    label="Assumptions"
+                />
+                <TabButton
+                    active={tab === "confidence"}
+                    onClick={() => setTab("confidence")}
+                    icon={<LineChart className="size-4" />}
+                    label="Confidence"
+                />
+            </div>
+
+            {tab === "platforms" && (
+                <div className="space-y-4">
+                    {sortedPlatforms.map((p) => (
+                        <PlatformCard key={String(p.platform)} p={p} />
+                    ))}
                 </div>
-                <h1 className="text-5xl font-extrabold tracking-tight mt-4">Market Plan</h1>
-                <p className="text-slate-500 mt-2">
-                    Complete marketing strategy tailored for your business
-                </p>
-            </div>
+            )}
 
-            {/* Stats */}
-            <div className="grid md:grid-cols-4 gap-4">
-                <StatCard
-                    title="Today's Tasks"
-                    value={todayTasksValue}
-                    subtitle={
-                        vm.stats.todayTasks == null
-                            ? "Not provided by backend yet"
-                            : "Tasks scheduled for today"
-                    }
-                />
-                <StatCard
-                    title="Growth Potential"
-                    value={growthValue}
-                    subtitle={
-                        vm.stats.growthPotential == null
-                            ? "Not provided by backend yet"
-                            : "Based on AI confidence/assessment"
-                    }
-                />
-                <StatCard
-                    title="Plan Period"
-                    value={planPeriodValue}
-                    subtitle={
-                        vm.stats.planPeriodWeeks == null
-                            ? "Not provided by backend yet"
-                            : "Marketing plan duration (weeks)"
-                    }
-                />
-                <StatCard
-                    title="Goal Progress"
-                    value={progressValue}
-                    subtitle={
-                        vm.stats.goalProgressPct == null
-                            ? "Tracking not implemented yet"
-                            : "Overall achievements"
-                    }
-                />
-            </div>
-
-            {/* Metrics accordion header */}
-            <div className="vf-card p-5 flex items-center justify-between">
-                <div>
-                    <div className="font-semibold">Platform Goals & Metrics</div>
-                    <div className="text-sm text-slate-500">
-                        Uses backend metrics when available (rawJson.metrics)
+            {tab === "measurement" && (
+                <div className="rounded-2xl border border-white/10 bg-white/5 p-5">
+                    <div className="flex items-center gap-2 font-semibold">
+                        <BarChart3 className="size-4" />
+                        Measurement
+                    </div>
+                    <div className="mt-3">
+                        <div className="text-xs text-white/55">North star metric</div>
+                        <div className="text-sm text-white/85 mt-1">{plan.measurement?.northStarMetric}</div>
+                    </div>
+                    <div className="mt-4">
+                        <div className="text-xs text-white/55">KPIs</div>
+                        <div className="mt-2 space-y-1">
+                            {plan.measurement?.kpis?.map((k) => (
+                                <div key={k} className="text-sm text-white/75 flex gap-2">
+                                    <span className="text-white/45">•</span>
+                                    <span>{k}</span>
+                                </div>
+                            ))}
+                        </div>
+                    </div>
+                    <div className="mt-4">
+                        <div className="text-xs text-white/55">Reporting cadence</div>
+                        <div className="text-sm text-white/75 mt-1">{plan.measurement?.reportingCadence}</div>
                     </div>
                 </div>
-                <div className="text-slate-400">⌄</div>
-            </div>
+            )}
 
-            {/* Better toggle */}
-            <SegmentedTabs tab={tab} setTab={setTab} />
-
-            {/* OVERVIEW */}
-            {tab === "overview" && (
-                <div className="vf-card p-6">
-                    <div className="text-xl font-extrabold mb-2">Platform Strategy</div>
-                    {vm.summary ? (
-                        <div className="text-sm text-slate-600 mb-6">{vm.summary}</div>
-                    ) : (
-                        <div className="text-sm text-slate-500 mb-6">
-                            (No summary provided by backend in rawJson)
+            {tab === "assumptions" && (
+                <div className="space-y-3">
+                    {plan.assumptions?.map((a) => (
+                        <div key={a.assumption} className="rounded-2xl border border-white/10 bg-white/5 p-5">
+                            <div className="flex items-start justify-between gap-4">
+                                <div className="font-semibold">{a.assumption}</div>
+                                <span className="vf-pill">Risk: {a.riskLevel}</span>
+                            </div>
+                            <div className="mt-2 text-sm text-white/70">
+                                <span className="text-white/55">How to test:</span> {a.howToTest}
+                            </div>
                         </div>
-                    )}
+                    ))}
+                </div>
+            )}
 
-                    <div className="grid md:grid-cols-2 gap-4">
-                        {vm.platforms.map((p, i) => (
-                            <div key={i} className="rounded-2xl border border-black/10 bg-white/70 p-5">
-                                <div className="flex items-start justify-between gap-3">
-                                    <div>
-                                        <div className="font-semibold">{p.platform}</div>
-                                        <div className="text-xs text-slate-500 mt-1">
-                                            {p.frequencyPerWeek}× / week
-                                        </div>
-                                    </div>
-                                    <span className="vf-badge">{p.frequencyPerWeek}×</span>
-                                </div>
-
-                                {p.rationale && (
-                                    <p className="text-sm text-slate-700 mt-3 leading-relaxed">{p.rationale}</p>
-                                )}
-
-                                {/* Only show if backend/rawJson includes them */}
-                                {!!p.pillars?.length && (
-                                    <div className="mt-4">
-                                        <div className="text-xs font-bold text-slate-500 uppercase tracking-wide mb-2">
-                                            Content Pillars
-                                        </div>
-                                        <div className="space-y-2">
-                                            {p.pillars.slice(0, 3).map((c, idx) => (
-                                                <div key={idx} className="rounded-xl border border-black/10 bg-white p-3">
-                                                    <div className="font-semibold text-sm">{c.name}</div>
-                                                    {c.angle && <div className="text-xs text-slate-600 mt-1">{c.angle}</div>}
-                                                </div>
-                                            ))}
-                                        </div>
-                                    </div>
-                                )}
-
-                                {!!p.hooks?.length && (
-                                    <div className="mt-4">
-                                        <div className="text-xs font-bold text-slate-500 uppercase tracking-wide mb-2">Hooks</div>
-                                        <ul className="text-sm text-slate-700 space-y-1">
-                                            {p.hooks.slice(0, 3).map((h, idx) => (
-                                                <li key={idx}>• {h}</li>
-                                            ))}
-                                        </ul>
-                                    </div>
-                                )}
-
-                                {!!p.ctas?.length && (
-                                    <div className="mt-4">
-                                        <div className="text-xs font-bold text-slate-500 uppercase tracking-wide mb-2">CTAs</div>
-                                        <ul className="text-sm text-slate-700 space-y-1">
-                                            {p.ctas.slice(0, 3).map((c, idx) => (
-                                                <li key={idx}>• {c}</li>
-                                            ))}
-                                        </ul>
-                                    </div>
-                                )}
+            {tab === "confidence" && (
+                <div className="rounded-2xl border border-white/10 bg-white/5 p-5">
+                    <div className="flex items-center justify-between gap-4">
+                        <div className="font-semibold">Confidence score</div>
+                        <span className="vf-pill">{Math.round((plan.confidence?.score ?? 0) * 100)}%</span>
+                    </div>
+                    <div className="mt-3 space-y-1">
+                        {plan.confidence?.reasons?.map((r) => (
+                            <div key={r} className="text-sm text-white/75 flex gap-2">
+                                <span className="text-white/45">•</span>
+                                <span>{r}</span>
                             </div>
                         ))}
                     </div>
                 </div>
-            )}
-
-            {/* CONTENT ACTIVITY */}
-            {tab === "content" && (
-                <div className="vf-card p-6">
-                    <div className="text-xl font-extrabold mb-2">Content Activity</div>
-
-                    {!vm.calendar && !vm.contentIdeas && (
-                        <div className="text-sm text-slate-600">
-                            Backend doesn’t provide calendar/tasks/contentIdeas yet.
-                            <br />
-                            ✅ Next step is to include these in the AI JSON contract (rawJson) or add endpoints.
-                        </div>
-                    )}
-
-                    {vm.contentIdeas && (
-                        <div className="mt-5">
-                            <div className="text-lg font-bold mb-3">Content Ideas</div>
-                            <div className="grid md:grid-cols-3 gap-4">
-                                {vm.contentIdeas.map((c, i) => (
-                                    <div key={c.id ?? i} className="rounded-2xl border border-black/10 bg-white/70 p-4">
-                                        <div className="text-xs font-semibold text-slate-500">{c.type || "Idea"}</div>
-                                        <div className="mt-2 font-extrabold">{c.title}</div>
-                                        {c.description && <div className="text-sm text-slate-600 mt-2">{c.description}</div>}
-                                    </div>
-                                ))}
-                            </div>
-                        </div>
-                    )}
-
-                    {vm.calendar && (
-                        <div className="mt-6">
-                            <div className="text-lg font-bold mb-2">Calendar</div>
-                            <div className="text-sm text-slate-500">
-                                (Rendered from backend calendar in rawJson)
-                            </div>
-                        </div>
-                    )}
-                </div>
-            )}
-
-            {/* Debug */}
-            {plan.rawJson && (
-                <details className="vf-card p-5">
-                    <summary className="cursor-pointer text-sm font-extrabold text-slate-700">
-                        View raw AI JSON
-                    </summary>
-                    <pre className="mt-3 max-h-72 overflow-auto rounded-xl bg-slate-950 text-slate-100 p-4 text-[11px] leading-relaxed">
-            {plan.rawJson}
-          </pre>
-                </details>
             )}
         </div>
     );
